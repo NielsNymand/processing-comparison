@@ -64,22 +64,31 @@ def read_h5(filename,integrators,trace_nr=10000,chunk = '0000-0029',cable_delay_
                 data_dict[integr]['trace_nr'] = trace_nr
 
     return data_dict
-#plt.imshow(power(data_dict['Integrator_0']['Chirps']),aspect='auto')
 
-def plot_signal(data_dict,title='',radar_par = {}):
+def plot_signal(data_dict,title='',radar_par = {},plot_complex=False):
     keys = data_dict.keys()
-    fig,axs = plt.subplots(len(keys),2,sharex='col',sharey='col')
+    if plot_complex:
+        fig,axs = plt.subplots(len(keys),2,sharex=True,sharey='col')
+    if not plot_complex:
+        fig,axs = plt.subplots(len(keys),2,sharex='col',sharey='col')
     axs = axs.flatten()
     # plot raw taces
     for i,key in enumerate(keys):
         trace = data_dict[key]['trace']
         time   = data_dict[key]['time']
-        signal_fft,freq_axis = rp.calc_spectrum(trace,radar_par['fs'])
-
         axs[i*2].plot(time*1e6,power(trace) )
-        axs[i*2+1].plot(freq_axis/1e6,fftpack.fftshift(signal_fft) )
         axs[i*2].set_ylabel('Signal power (dB)')
-        axs[i*2+1].set_ylabel('Spectrum power (dB)')
+
+        if not plot_complex:
+            signal_fft,freq_axis = rp.calc_spectrum(trace,radar_par['fs'])
+            axs[i*2+1].plot(freq_axis/1e6,fftpack.fftshift(signal_fft) )
+            axs[i*2+1].set_ylabel('Spectrum power (dB)')
+
+        if plot_complex:
+            axs[i*2+1].plot(time*1e6,np.angle(trace) )
+            axs[i*2+1].set_ylabel('Signal phase (rad)')
+            
+
         axs[i*2+1].yaxis.set_label_position("right")
         axs[i*2+1].yaxis.tick_right()
         
@@ -87,32 +96,30 @@ def plot_signal(data_dict,title='',radar_par = {}):
         axs[i*2+1].set_title(key.replace('_',' '))
     [ax.grid() for ax in axs]
     axs[(len(keys)-1)*2].set_xlabel('TWT (us)')
-    axs[(len(keys)-1)*2+1].set_xlabel('Frequency (MHz)')
-    fig.suptitle(title)
-# plot raw signal
+    if not plot_complex:
+        axs[(len(keys)-1)*2+1].set_xlabel('Frequency (MHz)')
+    if plot_complex:
+        axs[(len(keys)-1)*2+1].set_xlabel('TWT (us)')
 
-# plot_signal(data_dict,title='Raw signal')
+    fig.suptitle(title)
 
 # do frequency shift
+def frequency_shift_trace(trace,time,freq_shift=0.0):
+    shift_function = np.exp(1j * 2 * np.pi * freq_shift * time, dtype=trace.dtype)
+    return trace * shift_function
+
 def frequency_shift(data_dict,freq_shift):
-    for integr in integrators:
+    for integr in data_dict:
         trace = data_dict[integr]['trace']
         time   = data_dict[integr]['time'] 
-        shift_function = np.exp(1j * 2 * np.pi * freq_shift * time, dtype=trace.dtype)
-    #    shift_function = shift_function  # reshape to conform with data
-        print(shift_function.shape)
-        data_dict[integr]['trace'] = trace * shift_function
-# plot freq shifted signal
-
-# frequency_shift(data_dict,freq_shift)
-# plot_signal(data_dict,title='Frequency shift')
+        data_dict[integr]['trace'] = frequency_shift_trace(trace,time,freq_shift=freq_shift)
 
 
 # lowpass filter
 def lowpass(data_dict,bandwidth=300e6,radar_par={}):
     sos = signal.butter(50,bandwidth/radar_par['fs'],output='sos')
 #    sos = signal.butter(50,[B/3,B/2],fs=fs,output='sos',btype='bandpass')
-    for integr in integrators:
+    for integr in data_dict:
         data_dict[integr]['trace'] = signal.sosfiltfilt(sos,data_dict[integr]['trace'])
 
 def bandpass(data_dict,bandwidth,freq_shift=0,radar_par={}):
@@ -121,7 +128,7 @@ def bandpass(data_dict,bandwidth,freq_shift=0,radar_par={}):
     frequency_shift(data_dict,-freq_shift)
 
 
-def generate_chirp(trace,radar_par={}):
+def generate_chirp_radar(radar_par={}):
     '''The generated chirp is independent of the effective bandwidth. It will be truncated later'''
 
     chirp_time = np.arange(0,  radar_par['chirp_length']* radar_par['fs'] - 1) / radar_par['fs']
@@ -131,11 +138,19 @@ def generate_chirp(trace,radar_par={}):
 
     return reference_chirp,chirp_time
 
+def generate_chirp_modified(bandwidth,radar_par={}):
+    '''Generate a chirp of abitrary bandwidth'''
+    chirp_length =  radar_par['chirp_length'] * bandwidth/radar_par['B'] 
+    chirp_time   = np.arange(0,  chirp_length* radar_par['fs'] - 1) / radar_par['fs']
+    reference_chirp = np.exp(
+            -1j* 2* np.pi* ((bandwidth / 2) * chirp_time - bandwidth / chirp_length / 2 * chirp_time ** 2)
+        )
+    return reference_chirp,chirp_time
 
 
 def pulse_compress(data_dict,bandwidth=300e6,approach='0',apply_bandpass=False,radar_par={}):
     ''' 
-        Pulse compress signal
+        Pulse compress signal. Truncating the radar transmitted chirp (10 us and 300MHz bandwidth) to reduce the bandwidth
             bandwidth: Bandwidth in Hz of chirp, default 300 MHz
             approach : The method for pulse compression. see top of script. Default is a normal pulse compression utilizing the entire chirp transmitted by the radar system
      '''
@@ -145,7 +160,7 @@ def pulse_compress(data_dict,bandwidth=300e6,approach='0',apply_bandpass=False,r
     for integr in integrators:
         trace = data_dict[integr]['trace']
         time  = data_dict[integr]['time']
-        chirp,chirp_time = generate_chirp(trace,radar_par=radar_par)
+        chirp,chirp_time = generate_chirp_radar(radar_par=radar_par)
         N_chirp = len(chirp)
         time_shift = 0.0 # For approach 3 we need to apply a time shift as the pulse compressed peaks are not aligned with the start of the chirp
         if approach == '0': # normal pulse compression without a truncated chirp
@@ -213,6 +228,81 @@ def pulse_compress(data_dict,bandwidth=300e6,approach='0',apply_bandpass=False,r
             data_dict[integr]['time']  = data_dict[integr]['time' ][N_truncated:]
 #        if approach == '1':
 
+def pulse_compress_alternative(data_dict,bandwidth=300e6,approach='0',apply_bandpass=False,radar_par={}):
+    ''' 
+        Pulse compress signal. Frequency shifting and generating reference chirp of lower bandwidth
+            bandwidth: Bandwidth in Hz of chirp, default 300 MHz
+            approach : The method for pulse compression. see top of script. Default is a normal pulse compression utilizing the entire chirp transmitted by the radar system
+     '''
+    import scipy.signal.windows as scisigW
+#    reference_window = scisigW.hamming(len(reference_chirp))
+
+    for integr in integrators:
+        trace = data_dict[integr]['trace']
+        time  = data_dict[integr]['time']
+
+        time_shift = 0.0 # For approach 3 we need to apply a time shift as the pulse compressed peaks are not aligned with the start of the chirp
+        if approach == '0': # normal pulse compression without a truncated chirp
+            chirp,chirp_time = generate_chirp_radar(radar_par=radar_par)
+            N_chirp = len(chirp)
+            data_dict[integr]['bandwidth']= str(int(radar_par['B']/1e6) )
+
+        if approach !='0':
+            chirp,chirp_time = generate_chirp_modified(bandwidth,radar_par=radar_par)
+            data_dict[integr]['bandwidth']= str(int(bandwidth/1e6))
+            data_dict[integr]['alt'] = True
+
+        if approach =='1': # centre frequency of trace is already correct
+            time_shift = -radar_par['chirp_length']* 0.5* (1 - bandwidth/radar_par['B']) 
+
+            if apply_bandpass:
+                bandpass(data_dict,bandwidth,freq_shift=0.0,radar_par=radar_par)
+
+        if approach == '2':
+            trace = frequency_shift_trace(trace,time,freq_shift= -0.5*(-radar_par['B']+bandwidth) )
+
+            if apply_bandpass:
+                bandpass(data_dict,bandwidth,freq_shift=-(bandwidth-radar_par['B'])/2,radar_par=radar_par)
+
+        if approach == '3':
+            trace = frequency_shift_trace(trace,time,freq_shift= -0.5*( radar_par['B']-bandwidth) )
+            #time_shift = -(N_chirp-N_truncated)/radar_par['fs']#-chirp_length * (1-bandwidth/B)
+            time_shift = -radar_par['chirp_length'] *(1-bandwidth/radar_par['B'])
+            if apply_bandpass:
+                bandpass(data_dict,bandwidth,freq_shift=(bandwidth-radar_par['B'])/2,radar_par=radar_par)
+
+
+
+        data_dict[integr]['approach'] = approach
+        data_dict[integr]['bandpass'] = apply_bandpass
+
+
+        hamming_window = scisigW.hamming(len(chirp))
+        chirp *= hamming_window
+
+#        chirp = chirp[N_chirp//3:int(N_chirp*2/3)]
+
+
+        N = len(trace)
+        nfft = 2 ** (
+            int(np.log2(max([len(chirp), N]))) + 1
+        )  # array length to be a power of 2 for imporoved efficiency of fft.
+        reference_freq = np.conj(fftpack.fftshift(fft.fft(chirp, n=nfft)))  # spectrum of chirp
+
+        N_out = N - len(chirp) + 1
+#        data_out = np.zeros(N_out, dtype=trace)  # output data array
+        data_freq = (
+                    fftpack.fftshift(fft.fft(trace, n=nfft)) * reference_freq
+                )  # cross correlation of chirp and data in frequency domain
+        data_t = fft.ifft(fftpack.ifftshift(data_freq))  # transform back to time domain
+
+
+        data_dict[integr]['trace'] = data_t[0:N_out]  # cropped back to correct size
+        data_dict[integr]['time']  = time[0:N_out] + time_shift
+        # if approach == '3' or approach=='1':
+        #     data_dict[integr]['trace'] = data_dict[integr]['trace'][N_truncated:]
+        #     data_dict[integr]['time']  = data_dict[integr]['time' ][N_truncated:]
+#        if approach == '1':
 
 
 
@@ -224,6 +314,8 @@ def combine_results(data2combine):
         for d_dict in data2combine:
             if d_dict[key]['bandpass']:
                 add_str = '(BP)'
+            if 'alt' in d_dict[key]:
+                add_str = '(alt)'
             else:
                 add_str = ''
             combined_dict[key]['approach: ' + d_dict[key]['approach'] + ', B = ' + d_dict[key]['bandwidth'] +'MHz' + f' {add_str}'] = d_dict[key]
@@ -231,6 +323,18 @@ def combine_results(data2combine):
 
     return combined_dict
 
+def basic_processing(data_dict,radar_par,plot_steps=False):
+
+    if plot_steps:
+        plot_signal(data_dict,radar_par=radar_par,title='Raw signal',plot_complex=False)
+    freq_shift = radar_par['fs']/2.0 - radar_par['fc']
+    frequency_shift(data_dict,freq_shift)
+    if plot_steps:
+        plot_signal(data_dict,radar_par=radar_par,title='Frequency shift',plot_complex=False)
+    
+    lowpass(data_dict,bandwidth=radar_par['B'],radar_par=radar_par)
+    if plot_steps:
+        plot_signal(data_dict,radar_par=radar_par,title='Lowpass filtered',plot_complex=False)
 
 if __name__ == '__main__':
 
@@ -248,18 +352,9 @@ if __name__ == '__main__':
         'fc': 330e6,
         'chirp_length': 10e-6,
     }
-#    B_eff = [200e6,100e6,50e6,25e6]
-    freq_shift = radar_par['fs']/2.0 - radar_par['fc']
 
-    plot_signal(data_dict,radar_par=radar_par,title='Raw signal')
-    # frequency shift
-    frequency_shift(data_dict,freq_shift)
-    plot_signal(data_dict,radar_par=radar_par,title='Frequency shift')
-
-    # lowpass filtered
-    lowpass(data_dict,bandwidth=radar_par['B'],radar_par=radar_par)
-    plot_signal(data_dict,radar_par=radar_par,title='Lowpass filtered')
-
+    basic_processing(data_dict,radar_par,plot_steps=True)
+    
 
     data_dict_approach_1 = copy.deepcopy(data_dict)
     data_dict_approach_2 = copy.deepcopy(data_dict)
@@ -269,10 +364,11 @@ if __name__ == '__main__':
     data_dict_approach_3bp = copy.deepcopy(data_dict)
 
 
+
     pulse_compress(data_dict,radar_par=radar_par)
-    pulse_compress(data_dict_approach_1bp,50e6,approach='1',apply_bandpass=True,radar_par=radar_par)
-    pulse_compress(data_dict_approach_2bp,50e6,approach='2',apply_bandpass=True,radar_par=radar_par)
-    pulse_compress(data_dict_approach_3bp,50e6,approach='3',apply_bandpass=True,radar_par=radar_par)
+    pulse_compress_alternative(data_dict_approach_1bp,50e6,approach='1',apply_bandpass=False,radar_par=radar_par)
+    pulse_compress_alternative(data_dict_approach_2bp,50e6,approach='2',apply_bandpass=False,radar_par=radar_par)
+    pulse_compress_alternative(data_dict_approach_3bp,50e6,approach='3',apply_bandpass=False,radar_par=radar_par)
 
     pulse_compress(data_dict_approach_1,50e6,approach='1',apply_bandpass=False,radar_par=radar_par)
     pulse_compress(data_dict_approach_2,50e6,approach='2',apply_bandpass=False,radar_par=radar_par)
@@ -286,14 +382,14 @@ if __name__ == '__main__':
     dicts = [data_dict,data_dict_approach_1,data_dict_approach_2,data_dict_approach_3]
     pulse_compress_dict = combine_results(dicts)
 
-    plot_signal(pulse_compress_dict['Integrator_0'],radar_par=radar_par,title='Integrator 0')
-    plot_signal(pulse_compress_dict['Integrator_2'],radar_par=radar_par,title='Integrator 2')
+    plot_signal(pulse_compress_dict['Integrator_0'],radar_par=radar_par,title='Integrator 0',plot_complex=False)
+    plot_signal(pulse_compress_dict['Integrator_2'],radar_par=radar_par,title='Integrator 2',plot_complex=False)
 
     dicts = [data_dict_approach_1,data_dict_approach_1bp,data_dict_approach_2,data_dict_approach_2bp,data_dict_approach_3,data_dict_approach_3bp]
     pulse_compress_dict = combine_results(dicts)
 
-    plot_signal(pulse_compress_dict['Integrator_0'],radar_par=radar_par,title='Integrator 0')
-    plot_signal(pulse_compress_dict['Integrator_2'],radar_par=radar_par,title='Integrator 2')
+    plot_signal(pulse_compress_dict['Integrator_0'],radar_par=radar_par,title='Integrator 0',plot_complex=False)
+    plot_signal(pulse_compress_dict['Integrator_2'],radar_par=radar_par,title='Integrator 2',plot_complex=True)
 
 
 
