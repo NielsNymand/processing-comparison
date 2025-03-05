@@ -4,6 +4,7 @@ import h5py
 from scipy import signal,fft,fftpack
 from UoAPy import radar_plotting  as rp
 import copy
+from scipy.ndimage import gaussian_filter1d
 ### 3 different approaches
 # f1 = fc - B/2
 # f2 = fc + B/2
@@ -65,7 +66,7 @@ def read_h5(filename,integrators,trace_nr=10000,chunk = '0000-0029',cable_delay_
 
     return data_dict
 
-def plot_signal(data_dict,title='',radar_par = {},plot_complex=False):
+def plot_signal(data_dict,title='',radar_par = {},plot_complex=False,TWT_lim=(None,None),ylim_signal=(None,None)):
     keys = data_dict.keys()
     if plot_complex:
         fig,axs = plt.subplots(len(keys),2,sharex=True,sharey='col')
@@ -96,6 +97,8 @@ def plot_signal(data_dict,title='',radar_par = {},plot_complex=False):
         axs[i*2+1].set_title(key.replace('_',' '))
     [ax.grid() for ax in axs]
     axs[(len(keys)-1)*2].set_xlabel('TWT (us)')
+    axs[(len(keys)-1)*2].set_xlim(TWT_lim)
+    axs[(len(keys)-1)*2].set_ylim(ylim_signal)
     if not plot_complex:
         axs[(len(keys)-1)*2+1].set_xlabel('Frequency (MHz)')
     if plot_complex:
@@ -137,6 +140,21 @@ def generate_chirp_radar(radar_par={}):
         )
 
     return reference_chirp,chirp_time
+
+def bandwidths_for_perfect_alignment(radar_par):
+    ''' The 300 MHz chirp has real value of 1 at t = T/2. The phase at t = T/2 is not independent of T and B.
+        This mean that if the reduced bandwidth is not chosen carefully it will not actually match the transmitted one.
+        It turns out that the following conditions needs to be true, BT/8 = n, where n is an integer. 
+        The reduced bandwidth, and thereby pulse length, is b = r*B and T_red = r*T. b*T_red/8 = r^2 *BT/8 = n.
+        Possible reduction factors, r, therefor has to be chosen as r = sqrt(8n/(BT)) for n <= BT/8
+        THIS DOES NOT SEEM TO ACTUALLY BE A PROBLEM. 
+         '''
+    
+    n = radar_par['B']*radar_par['chirp_length']/8
+    ns = np.arange(1,n)
+    reduction_factors = np.sqrt(8*ns/(radar_par['B']*radar_par['chirp_length']) )
+
+    return reduction_factors
 
 def generate_chirp_modified(bandwidth,radar_par={}):
     '''Generate a chirp of abitrary bandwidth'''
@@ -336,6 +354,8 @@ def basic_processing(data_dict,radar_par,plot_steps=False):
     if plot_steps:
         plot_signal(data_dict,radar_par=radar_par,title='Lowpass filtered',plot_complex=False)
 
+
+
 if __name__ == '__main__':
 
     path2data = '/media/niels/NielsSSD/data/UWB_raw/raw_h5'
@@ -353,7 +373,7 @@ if __name__ == '__main__':
         'chirp_length': 10e-6,
     }
 
-    basic_processing(data_dict,radar_par,plot_steps=True)
+    basic_processing(data_dict,radar_par,plot_steps=False)
     
 
     data_dict_approach_1 = copy.deepcopy(data_dict)
@@ -363,16 +383,17 @@ if __name__ == '__main__':
     data_dict_approach_2bp = copy.deepcopy(data_dict)
     data_dict_approach_3bp = copy.deepcopy(data_dict)
 
+    print(bandwidths_for_perfect_alignment(radar_par)*300)
 
 
     pulse_compress(data_dict,radar_par=radar_par)
-    pulse_compress_alternative(data_dict_approach_1bp,50e6,approach='1',apply_bandpass=False,radar_par=radar_par)
-    pulse_compress_alternative(data_dict_approach_2bp,50e6,approach='2',apply_bandpass=False,radar_par=radar_par)
-    pulse_compress_alternative(data_dict_approach_3bp,50e6,approach='3',apply_bandpass=False,radar_par=radar_par)
+    pulse_compress_alternative(data_dict_approach_1bp,120e6,approach='1',apply_bandpass=False,radar_par=radar_par)
+    pulse_compress_alternative(data_dict_approach_2bp,120e6,approach='2',apply_bandpass=False,radar_par=radar_par)
+    pulse_compress_alternative(data_dict_approach_3bp,120e6,approach='3',apply_bandpass=False,radar_par=radar_par)
 
-    pulse_compress(data_dict_approach_1,50e6,approach='1',apply_bandpass=False,radar_par=radar_par)
-    pulse_compress(data_dict_approach_2,50e6,approach='2',apply_bandpass=False,radar_par=radar_par)
-    pulse_compress(data_dict_approach_3,50e6,approach='3',apply_bandpass=False,radar_par=radar_par)
+    pulse_compress_alternative(data_dict_approach_1,120e6,approach='1',apply_bandpass=False,radar_par=radar_par)
+    pulse_compress_alternative(data_dict_approach_2,120e6,approach='2',apply_bandpass=False,radar_par=radar_par)
+    pulse_compress_alternative(data_dict_approach_3,120e6,approach='3',apply_bandpass=False,radar_par=radar_par)
 
 
 
@@ -382,14 +403,26 @@ if __name__ == '__main__':
     dicts = [data_dict,data_dict_approach_1,data_dict_approach_2,data_dict_approach_3]
     pulse_compress_dict = combine_results(dicts)
 
-    plot_signal(pulse_compress_dict['Integrator_0'],radar_par=radar_par,title='Integrator 0',plot_complex=False)
-    plot_signal(pulse_compress_dict['Integrator_2'],radar_par=radar_par,title='Integrator 2',plot_complex=False)
+#    plot_signal(pulse_compress_dict['Integrator_0'],radar_par=radar_par,title='Integrator 0',plot_complex=False,TWT_lim=(22,27),ylim_signal=(40,140))
+    plot_signal(pulse_compress_dict['Integrator_2'],radar_par=radar_par,title='Integrator 2',plot_complex=True,TWT_lim=(22,27),ylim_signal=(40,140))
 
-    dicts = [data_dict_approach_1,data_dict_approach_1bp,data_dict_approach_2,data_dict_approach_2bp,data_dict_approach_3,data_dict_approach_3bp]
+
+    dicts = [data_dict,data_dict_approach_1bp,data_dict_approach_2bp,data_dict_approach_3bp]
     pulse_compress_dict = combine_results(dicts)
 
-    plot_signal(pulse_compress_dict['Integrator_0'],radar_par=radar_par,title='Integrator 0',plot_complex=False)
-    plot_signal(pulse_compress_dict['Integrator_2'],radar_par=radar_par,title='Integrator 2',plot_complex=True)
+#    plot_signal(pulse_compress_dict['Integrator_0'],radar_par=radar_par,title='Integrator 0',plot_complex=False,TWT_lim=(22,27),ylim_signal=(40,140))
+    plot_signal(pulse_compress_dict['Integrator_2'],radar_par=radar_par,title='Integrator 2',plot_complex=True,TWT_lim=(22,27),ylim_signal=(40,140))
+
+
+
+
+
+
+    # dicts = [data_dict_approach_1,data_dict_approach_1bp,data_dict_approach_2,data_dict_approach_2bp,data_dict_approach_3,data_dict_approach_3bp]
+    # pulse_compress_dict = combine_results(dicts)
+
+    # plot_signal(pulse_compress_dict['Integrator_0'],radar_par=radar_par,title='Integrator 0',plot_complex=False)
+    # plot_signal(pulse_compress_dict['Integrator_2'],radar_par=radar_par,title='Integrator 2',plot_complex=True)
 
 
 

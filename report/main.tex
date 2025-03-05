@@ -1,0 +1,62 @@
+\documentclass[]{article}
+\usepackage{natbib}
+\usepackage{graphicx}
+\usepackage[hidelinks]{hyperref}
+\usepackage{amsmath}
+% Title Page
+\title{Tests of tuneable processing steps}
+\author{Niels F. Nymand}
+
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+	This document contains an overview of the characteristics of three tuneable processing steps used when processing data from radar systems developed by the University of Alabama (UWB and UHF). First we compare how the number of coherent decimations affects the signal. Second we compare the effects of using a 5\% tapered Tukey window with the reference chirp in pulse compression with the commonly used Hanning (100\% tapered Tukey) or Hamming filters. Lastly we test the potential of reducing the bandwidth of the reference chirp to effectively increasing the range resolution of the recorded signals with the aim of being able to apply co-polarized coherence methods for deriving the fabric in high anisotropy areas.
+\end{abstract}
+
+
+\section{Coherent decimation}
+
+\section{Windowing functions}
+
+\section{Reducing the bandwidth}
+The idea of reducing the bandwidth to gain better coherence between co-polarized signals was first introduced by \cite{zeising_brief_2024}. The general problem is that linearly frequency modulated radar systems will reach a point where two orthogonal and fabric aligned co-polarized signals are separated in travel-time beyond the range-resolution of the radar system. 
+Figure \ref{fig:chirped_vs_mono} shows a side by side view of a linear frequency modulated pulse (chirped pulse) and a mono pulse. An important characteristic of a chirped pulse is its autocorrelation being highly localized. For time lags outside the main peak the correlation is greatly reduced. The upside of this is that you can achieve good range resolution while having the high energy of a long pulse. A mono pulse has a constant frequency throughout the pulse length, and which causes the auto correlation to be much less localized. The downside is that to get good range resolution you need a short pulse, which means less energy for the same transmit power. However, an upside is that the interference between the two orthogonally polarized waves traveling in birefringent ice should be much easier to detect as the waves can be separated by a relatively large time lag without losing similarity.
+
+An auto correlation of 1 mean that the two copies of the pulse are perfectly matched and in phase, and an auto correlation of -1 are perfectly matched but 180 degree out of phase. These two extremes correspond to constructive and destructive interference, respectively. In a pulse compressed signal we are left with a superposition of the auto correlated chirps, and the higher the bandwidth the narrower the peak. Once the time lag between two recorded signals are outside this main peak their interference diminishes quickly. In other words, adding a pulse compressed signal with a sufficient time lag does not influence the original signal strength significantly. The interference is not zero, but the beat signature of the signals cycling in and out of might just disappear in the noise. If we wish to detect layers in the ice a high bandwidth is very useful, but for comparing phase information of two co-polarized signals a wider peak, lower bandwidth, might increase the range for which the coherence is preserved.
+\begin{figure}
+	\includegraphics[width=\textwidth]{../plots/chirped_vs_mono_pulses.pdf}
+	\caption{Linear frequency modulated pulse (chirped pulse) compare to a mono pulse}
+	\label{fig:chirped_vs_mono}
+\end{figure}
+
+
+\subsection{Three approaches of bandwidth reduction}
+The chirp function used for both the UWB and UHF radar systems can be expressed as,
+
+\begin{equation}
+	s_{chirp}(t) = \exp\left( j2\pi \left( \frac{B}{2T} t^2 - \frac{B}{2}t + f_c t \right) \right) \quad \text{for: } t\in [0,T],
+\end{equation}
+
+where $T$ is the pulse length, $f_c$ is the center frequency (carrier frequency), and $B$ is the bandwidth of the radar system.
+The instantaneous frequency curve can be expressed as,
+\begin{equation}
+	f(t) = \frac{B}{T} t - \frac{B}{2} + f_c \quad \text{for: } t\in[0,T],
+\end{equation}
+resulting in $f_1 \equiv f(0) = -\tfrac{B}{2}$ and $f_2 \equiv  f(T) = \tfrac{B}{2}$.\\
+Before doing pulse compression the frequency of the recorded signal is shifted to be centered around 0. For pulse compression the reference chirp has $f_c$ set to zero. 
+
+In the following we will present three different approaches for reducing the bandwidth from $B$ to $b$. The three approaches are special cases of a more general approach that will be discussed at the end.
+
+\subsubsection{Approach 1}
+The first approach keeps does not alter the center frequency but just changes bandwidth. In many ways this is the simplest approach as all it requires is to generate a chirp with a different bandwidth and adjust the pulse length to match. The new chirp is then,
+
+
+
+\bibliographystyle{apalike}
+\newpage
+\bibliography{refs}
+
+
+\end{document}          
